@@ -1,1 +1,1 @@
-# curepharmai
+# CurePharmAI
