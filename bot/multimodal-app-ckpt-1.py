@@ -18,6 +18,7 @@ WHATSAPP_API_URL = os.getenv("WHATSAPP_API_URL")
 MEDIA_URL = "https://graph.facebook.com/v20.0/{media_id}"
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
+AGENT_URL = os.getenv("AGENT_URL")
 
 # Model for WhatsApp message
 class WhatsAppMessage(BaseModel):
@@ -76,7 +77,8 @@ async def receive_message(request: Request):
                     payload = {"image_message":base64_image, "language":"Hindi"}
                     timeout = httpx.Timeout(connect=15.0, read=120.0, write=60.0, pool=120.0)
                     headers={"Authorization": f"Bearer {ACCESS_TOKEN}","Content-Type": "application/json"}
-                    response = await client.post("https://hrbot.demopersistent.com/generate_info_from_image_prescription",json=payload,headers=headers, timeout=timeout)
+                    api_url = AGENT_URL+"/generate_info_from_image_prescription"
+                    response = await client.post(api_url,json=payload,headers=headers, timeout=timeout)
                     response.raise_for_status()
                 await send_message(user_phone, response.json()["response"])
                 # await send_message(user_phone, f"Image received. Download URL: {media_url}")
@@ -87,26 +89,6 @@ async def receive_message(request: Request):
                 media_url = await fetch_media(media_id)
                 await send_message(user_phone, f"Audio received. Download URL: {media_url}")
 
-    
-    # url = "https://graph.facebook.com/v20.0/447655318432169/messages"
-    
-    # payload = {
-    #     "messaging_product": "whatsapp",
-    #     "to": "919689560608",  # Include country code, e.g., "1234567890"
-    #     "type": "text",
-    #     "text": {
-    #         "body": "Hello! This is a test message."
-    #     }
-    # }
-    
-    # headers = {
-    #     "Authorization": "Bearer EAAPvbjrr0ZAYBOxOlXwhVsU2ExaLrDRVeUmPe7fUrjbCRZCNcmRJveVCZB2GYIPnx2faAfZCZB6sVLuPclCMac2bkkhzBGyInSjHlApMopD80tLQ8VRUNsgkdh5upiT7uK6ZBcsRlt6RSx5Qf1fO8ZBHZA7ZAXxImggRNSlXDHRjCOvyeoNZBrsaGY5Xo4wh80aixj27vl4ysZBTFmAyoXPVOpNeazGJRYZD",
-    #     "Content-Type": "application/json"
-    # }
-
-    # async with httpx.AsyncClient() as client:
-    #     response = await client.post(url, json=payload, headers=headers)
-    #     print(response.json())
     return {"status": "success"}
 
 # Function to send a message using WhatsApp API
@@ -114,7 +96,6 @@ async def send_message(to: str, text: str):
     async with httpx.AsyncClient() as client:
         response = await client.post(
             WHATSAPP_API_URL,
-            # WHATSAPP_API_URL.format(phone_number_id=PHONE_NUMBER_ID),
             headers={
                 "Authorization": f"Bearer {ACCESS_TOKEN}",
                 "Content-Type": "application/json"

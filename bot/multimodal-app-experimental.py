@@ -48,19 +48,23 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
 
                 # Respond based on the text input
                 if user_message.lower() == "hi":
-                    background_tasks.add_task(trigger,user_phone)
+                    await send_message(user_phone, "Hello! Send text, image, or audio for processing.")
+                if user_message.lower() == "yes":
+                    image = Image.open(BytesIO(response.content))
+                    buffered = BytesIO()
+                    image.save(buffered, format="JPEG")  # You can change the format if needed
+                    image.save("./test.jpeg", format="JPEG")
+                    base64_image = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                # elif user_message == "1":
+                #     await send_message(user_phone, "Here is the info you requested.")
+                # elif user_message == "2":
+                #     await send_message(user_phone, "Our support team will reach out to you soon.")
+                # elif user_message == "3":
+                #     await send_message(user_phone, "Please submit your text, image, or audio request.")
+                # else:
+                #     await send_message(user_phone, "I did not understand that. Please choose from the options: 1, 2, or 3.")
 
-                if user_message[:6].lower() == "order:":
-                    query=user_message[6:]
-                    api_url = AGENT_URL + "/order_based_on_name"
-                    timeout = (15,60)
-                    payload = {"query": query}
-                    headers={"Authorization": f"Bearer {ACCESS_TOKEN}","Content-Type": "application/json"}
-                    response = requests.post(api_url, json=payload, headers=headers, timeout=timeout)
-                    await send_message(user_phone, response.json()["response"]["content"])
-
-                return JSONResponse(content={"status": "ok"}),200
-
+            # Handling Image Message
             elif message.get("image"):
                 media_id = message["image"]["id"]
                 media_url = await fetch_media(media_id)
@@ -69,16 +73,15 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
                     headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
                     response = await client.get(media_url,headers=headers)
                     response.raise_for_status()  # Ensure the request was successful
-                
-                # Convert the image content to base64
-                image = Image.open(BytesIO(response.content))
-                buffered = BytesIO()
-                image.save(buffered, format="JPEG")  # You can change the format if needed
-                image.save("./test.jpeg", format="JPEG")
-                base64_image = base64.b64encode(buffered.getvalue()).decode("utf-8")
-                
-                background_tasks.add_task(llm_call,base64_image,user_phone)
-                return JSONResponse(content={"status": "ok"}),200
+                return {"":""}
+            
+    #             # background_tasks.add_task(llm_call,base64_image,user_phone)
+    #             # return JSONResponse(
+    #     content={"status": "received"}, 
+    #     status_code=status.HTTP_200_OK
+    # )
+                # await send_message(user_phone, response.json()["response"])
+                # await send_message(user_phone, f"Image received. Download URL: {media_url}")
 
             # Handling Audio Message
             elif message.get("audio"):
@@ -88,12 +91,8 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
 
     return "",200
 
-async def trigger(user_phone:str):
-    await send_message(user_phone, "Hello! Welcome to CurePharmAI. Please send image of the prescription or the medicine.")
-    return None
-
 async def llm_call(image:str, user_phone:str):
-    api_url = AGENT_URL + "/generate_info_from_image"
+    api_url = AGENT_URL+"/generate_info_from_image_prescription"
     timeout = (15,60)
     payload = {"image_message":image, "language":"Hindi"}
     headers={"Authorization": f"Bearer {ACCESS_TOKEN}","Content-Type": "application/json"}
@@ -101,18 +100,10 @@ async def llm_call(image:str, user_phone:str):
     await send_message(user_phone, response.json()["response"])
     return None
 
-async def order_by_name(user_phone, name:str):
-    api_url = AGENT_URL + "/order_based_on_name"
-    timeout = (15,60)
-    payload = {"query": name}
-    headers={"Authorization": f"Bearer {ACCESS_TOKEN}","Content-Type": "application/json"}
-    response = requests.post(api_url, json=payload, headers=headers, timeout=timeout)
-    await send_message(user_phone, response.json()["response"]["content"])
-    return None
-
 # Function to send a message using WhatsApp API
 async def send_message(to: str, text: str):
-    response = requests.post(WHATSAPP_API_URL,headers={"Authorization": f"Bearer {ACCESS_TOKEN}","Content-Type": "application/json"},json={"messaging_product": "whatsapp","recipient_type": "individual","to": to,"type": "text","text": {"body": text}})
+
+    response = await requests.post(WHATSAPP_API_URL,headers={"Authorization": f"Bearer {ACCESS_TOKEN}","Content-Type": "application/json"},json={"messaging_product": "whatsapp","recipient_type": "individual","to": to,"type": "text","text": {"body": text}})
     
     if response.status_code == 200:
         print(f"Message sent to {to}: {text}")
