@@ -23,6 +23,7 @@ huggingface-hub==0.26.0
 idna==3.10
 multidict==6.1.0
 packaging==24.1
+pillow==11.0.0
 propcache==0.2.0
 psycopg2-binary==2.9.9
 pydantic==2.9.2
