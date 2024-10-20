@@ -1,11 +1,13 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, BackgroundTasks, status
 import httpx
 from pydantic import BaseModel
 import os
+import requests
 from dotenv import load_dotenv
 from io import BytesIO
 import base64
 from PIL import Image
+from fastapi.responses import JSONResponse
 
 load_dotenv()
 app = FastAPI()
@@ -18,6 +20,7 @@ WHATSAPP_API_URL = os.getenv("WHATSAPP_API_URL")
 MEDIA_URL = "https://graph.facebook.com/v20.0/{media_id}"
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
+AGENT_URL = os.getenv("AGENT_URL")
 
 # Model for WhatsApp message
 class WhatsAppMessage(BaseModel):
@@ -26,7 +29,7 @@ class WhatsAppMessage(BaseModel):
 
 # Webhook to receive incoming messages from WhatsApp
 @app.post("/webhook")
-async def receive_message(request: Request):
+async def receive_message(request: Request, background_tasks: BackgroundTasks):
     data = await request.json()
     # print("pong")
     message_data = WhatsAppMessage(**data)
@@ -34,7 +37,7 @@ async def receive_message(request: Request):
     if message_data.entry and message_data.entry[0]["changes"] and "messages" in message_data.entry[0]["changes"][0]["value"].keys() :
         messages = message_data.entry[0]["changes"][0]["value"]["messages"]
         print(messages)
-        if messages:
+        if messages:    
         # for message in messages:
             message = messages[-1]
             user_phone = message["from"]
@@ -45,7 +48,20 @@ async def receive_message(request: Request):
 
                 # Respond based on the text input
                 if user_message.lower() == "hi":
-                    await send_message(user_phone, "Hello! Send text, image, or audio for processing.")
+                    background_tasks.add_task(trigger,user_phone)
+
+                if user_message[:6].lower() == "order:":
+                    query=user_message[6:]
+                    api_url = AGENT_URL + "/order_based_on_name"
+                    timeout = (15,60)
+                    payload = {"query": query}
+                    headers={"Authorization": f"Bearer {ACCESS_TOKEN}","Content-Type": "application/json"}
+                    response = requests.post(api_url, json=payload, headers=headers, timeout=timeout)
+                    await send_message(user_phone, response.json()["response"]["content"])
+                    # background_tasks.add_task(order_by_name,user_phone,query) 
+
+                return JSONResponse(content={"status": "ok"}),200
+        # status_code=status.HTTP_200_OK)
                 # elif user_message == "1":
                 #     await send_message(user_phone, "Here is the info you requested.")
                 # elif user_message == "2":
@@ -72,13 +88,24 @@ async def receive_message(request: Request):
                 image.save("./test.jpeg", format="JPEG")
                 base64_image = base64.b64encode(buffered.getvalue()).decode("utf-8")
                 # with open("./")
-                async with httpx.AsyncClient() as client:
-                    payload = {"image_message":base64_image, "language":"Hindi"}
-                    timeout = httpx.Timeout(connect=15.0, read=120.0, write=60.0, pool=120.0)
-                    headers={"Authorization": f"Bearer {ACCESS_TOKEN}","Content-Type": "application/json"}
-                    response = await client.post("https://hrbot.demopersistent.com/generate_info_from_image_prescription",json=payload,headers=headers, timeout=timeout)
-                    response.raise_for_status()
-                await send_message(user_phone, response.json()["response"])
+                # async with httpx.AsyncClient() as client:
+                #     payload = {"image_message":base64_image, "language":"Hindi"}
+                #     timeout = httpx.Timeout(connect=15.0, read=120.0, write=60.0, pool=120.0)
+                #     headers={"Authorization": f"Bearer {ACCESS_TOKEN}","Content-Type": "application/json"}
+                #     response = await client.post("https://hrbot.demopersistent.com/generate_info_from_image_prescription",json=payload,headers=headers, timeout=timeout)
+                #     response.raise_for_status()
+
+                # api_url = "https://hrbot.demopersistent.com/generate_info_from_image_prescription"
+                # timeout = (15,60)
+                # payload = {"image_message":base64_image, "language":"Hindi"}
+                # headers={"Authorization": f"Bearer {ACCESS_TOKEN}","Content-Type": "application/json"}
+                # response = requests.post(api_url, json=payload, headers=headers, timeout=timeout)
+                background_tasks.add_task(llm_call,base64_image,user_phone)
+                return JSONResponse(
+        content={"status": "ok"}
+        # status_code=status.HTTP_200_OK
+    ),200
+                # await send_message(user_phone, response.json()["response"])
                 # await send_message(user_phone, f"Image received. Download URL: {media_url}")
 
             # Handling Audio Message
@@ -107,26 +134,50 @@ async def receive_message(request: Request):
     # async with httpx.AsyncClient() as client:
     #     response = await client.post(url, json=payload, headers=headers)
     #     print(response.json())
-    return {"status": "success"}
+    return "",200
+
+async def trigger(user_phone:str):
+    await send_message(user_phone, "Hello! Send text, image, or audio for processing.")
+    return None
+
+async def llm_call(image:str, user_phone:str):
+    api_url = AGENT_URL + "/generate_info_from_image"
+    timeout = (15,60)
+    payload = {"image_message":image, "language":"Hindi"}
+    headers={"Authorization": f"Bearer {ACCESS_TOKEN}","Content-Type": "application/json"}
+    response = requests.post(api_url, json=payload, headers=headers, timeout=timeout)
+    await send_message(user_phone, response.json()["response"])
+    return None
+
+async def order_by_name(user_phone, name:str):
+    api_url = AGENT_URL + "/order_based_on_name"
+    timeout = (15,60)
+    payload = {"query": name}
+    headers={"Authorization": f"Bearer {ACCESS_TOKEN}","Content-Type": "application/json"}
+    response = requests.post(api_url, json=payload, headers=headers, timeout=timeout)
+    await send_message(user_phone, response.json()["response"]["content"])
+    return None
 
 # Function to send a message using WhatsApp API
 async def send_message(to: str, text: str):
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            WHATSAPP_API_URL,
-            # WHATSAPP_API_URL.format(phone_number_id=PHONE_NUMBER_ID),
-            headers={
-                "Authorization": f"Bearer {ACCESS_TOKEN}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "messaging_product": "whatsapp",
-                "recipient_type": "individual",
-                "to": to,
-                "type": "text",
-                "text": {"body": text}
-            }
-        )
+    # async with httpx.AsyncClient() as client:
+        # response = await client.post(
+        #     WHATSAPP_API_URL,
+        #     # WHATSAPP_API_URL.format(phone_number_id=PHONE_NUMBER_ID),
+        #     headers={
+        #         "Authorization": f"Bearer {ACCESS_TOKEN}",
+        #         "Content-Type": "application/json"
+        #     },
+        #     json={
+        #         "messaging_product": "whatsapp",
+        #         "recipient_type": "individual",
+        #         "to": to,
+        #         "type": "text",
+        #         "text": {"body": text}
+        #     }
+        # )
+    response = requests.post(WHATSAPP_API_URL,headers={"Authorization": f"Bearer {ACCESS_TOKEN}","Content-Type": "application/json"},json={"messaging_product": "whatsapp","recipient_type": "individual","to": to,"type": "text","text": {"body": text}})
+    
     if response.status_code == 200:
         print(f"Message sent to {to}: {text}")
     else:
